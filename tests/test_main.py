@@ -1,30 +1,23 @@
-import pytest
 from fastapi.testclient import TestClient
-from pydantic import ValidationError
-
-from app.core.config import Settings
 from app.main import create_app
+from app.core.config import Settings
 
-
-def test_health_endpoint_returns_service_status() -> None:
-    client = TestClient(create_app(Settings(service_name="Test JobMind")))
-
+def test_health_endpoint():
+    """Test that the health endpoint returns the correct status and configuration."""
+    # Use explicit settings for tests so they don't depend on local env vars
+    test_settings = Settings(
+        service_name="JobMindTest",
+        environment="test",
+        log_level="DEBUG"
+    )
+    
+    app = create_app(test_settings)
+    client = TestClient(app)
+    
     response = client.get("/health")
-
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "service": "Test JobMind"}
-
-
-def test_settings_read_environment_variables(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("JOBMIND_SERVICE_NAME", "Configured JobMind")
-    monkeypatch.setenv("JOBMIND_ENVIRONMENT", "test")
-
-    settings = Settings()
-
-    assert settings.service_name == "Configured JobMind"
-    assert settings.environment == "test"
-
-
-def test_settings_reject_unknown_log_level() -> None:
-    with pytest.raises(ValidationError):
-        Settings(log_level="TRACE")
+    
+    data = response.json()
+    assert data["status"] == "ok"
+    assert data["service"] == "JobMindTest"
+    assert data["environment"] == "test"

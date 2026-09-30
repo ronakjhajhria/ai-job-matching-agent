@@ -1,8 +1,24 @@
+# Environments
 .env
-.venv/
+.venv
+.venv-*
+env/
+venv/
+ENV/
+
+# Python
 __pycache__/
+*.py[cod]
+*$py.class
+*.so
 .pytest_cache/
+htmlcov/
 .coverage
-build/
-dist/
-*.egg-info/
+.coverage.*
+coverage.xml
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo

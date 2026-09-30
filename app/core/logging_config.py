@@ -1,10 +1,13 @@
-"""Small standard-library logging setup for the API process."""
-
 import logging
+import sys
 
-
-def configure_logging(level: str) -> None:
+def configure_logging(level: str = "INFO") -> None:
+    """Configure standard-library logging for the application."""
     logging.basicConfig(
         level=level,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        handlers=[logging.StreamHandler(sys.stdout)],
     )
+    
+    # Silence overly verbose third-party loggers if needed
+    logging.getLogger("httpx").setLevel(logging.WARNING)
