@@ -1,5 +1,5 @@
 from typing import Literal
-from pydantic import SecretStr
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -27,6 +27,12 @@ class Settings(BaseSettings):
     # Qdrant — ":memory:" for local dev; provide URL for production
     qdrant_url: str = ":memory:"
     qdrant_collection: str = "jobmind_docs"
+
+    # Candidate preferences and short-lived conversation context
+    database_url: str | None = None
+    redis_url: str | None = None
+    session_ttl_seconds: int = Field(default=86400, ge=60)
+    session_max_messages: int = Field(default=30, ge=2, le=200)
 
     model_config = SettingsConfigDict(
         env_file=".env",

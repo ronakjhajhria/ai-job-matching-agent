@@ -117,7 +117,11 @@ pip install -e ".[dev]"
 cp .env.example .env
 # Edit .env and set JOBMIND_OPENAI_API_KEY=sk-...
 
-# 5. Run the API
+# 5. Start PostgreSQL and Redis, then apply the schema migration
+docker compose up -d postgres redis
+alembic upgrade head
+
+# 6. Run the API
 uvicorn app.main:app --reload
 ```
 
@@ -128,9 +132,9 @@ Open http://localhost:8000/docs for the interactive API docs.
 ```bash
 cp .env.example .env
 # Edit .env and set JOBMIND_OPENAI_API_KEY=sk-...
-# Also set JOBMIND_QDRANT_URL=http://qdrant:6333
-
-docker compose up --build
+docker compose up --build -d postgres redis qdrant
+docker compose run --rm api alembic upgrade head
+docker compose up -d api
 ```
 
 ## API Endpoints
@@ -146,6 +150,10 @@ docker compose up --build
 | POST | `/api/v1/agent/ask` | 8 | LangGraph career agent |
 | POST | `/api/v1/tracker/update` | 11 | Track a job application |
 | GET | `/api/v1/tracker/list` | 11 | List applications (filter by status) |
+| PUT | `/api/v1/preferences/{candidate_id}` | Storage | Replace durable structured job-search preferences |
+| GET | `/api/v1/preferences/{candidate_id}` | Storage | Read durable job-search preferences |
+| POST | `/api/v1/sessions/{session_id}/messages` | Storage | Append a message to bounded, expiring session context |
+| GET | `/api/v1/sessions/{session_id}/messages` | Storage | Read recent session context |
 
 ## Example Requests
 
@@ -173,6 +181,25 @@ curl -X POST http://localhost:8000/api/v1/matching/analyze \
   }'
 ```
 
+**Save candidate preferences**
+```bash
+curl -X PUT http://localhost:8000/api/v1/preferences/candidate-123 \
+  -H "Content-Type: application/json" \
+  -d '{"preferred_roles":["Backend Engineer"],"skills":["Python","PostgreSQL"],"locations":["Remote"],"remote_only":true,"min_years_experience":2,"min_salary":90000}'
+```
+
+Expected response (the timestamp is generated when the record is saved):
+```json
+{"candidate_id":"candidate-123","preferences":{"preferred_roles":["Backend Engineer"],"skills":["Python","PostgreSQL"],"locations":["Remote"],"remote_only":true,"min_years_experience":2.0,"min_salary":90000,"max_salary":null},"updated_at":"2026-10-04T12:00:00Z"}
+```
+
+**Store short-lived conversation context**
+```bash
+curl -X POST http://localhost:8000/api/v1/sessions/session-abc/messages \
+  -H "Content-Type: application/json" \
+  -d '{"role":"user","content":"Find remote backend roles."}'
+```
+
 ## Testing
 
 ```bash
@@ -193,6 +220,21 @@ pytest --cov=app --cov-report=term-missing
 | `JOBMIND_EMBEDDING_VECTOR_SIZE` | `1536` | Must match embedding model dimension |
 | `JOBMIND_QDRANT_URL` | `:memory:` | Qdrant host (`:memory:` for local dev) |
 | `JOBMIND_QDRANT_COLLECTION` | `jobmind_docs` | Collection name in Qdrant |
+| `JOBMIND_DATABASE_URL` | unset | SQLAlchemy URL for PostgreSQL; required for preference endpoints |
+| `JOBMIND_REDIS_URL` | unset | Redis URL; required for conversation-session endpoints |
+| `JOBMIND_SESSION_TTL_SECONDS` | `86400` | Redis session expiry in seconds |
+| `JOBMIND_SESSION_MAX_MESSAGES` | `30` | Maximum messages retained per session |
+| `JOBMIND_POSTGRES_DB` | `jobmind` | PostgreSQL database name in Compose |
+| `JOBMIND_POSTGRES_USER` | `jobmind` | PostgreSQL user in Compose |
+| `JOBMIND_POSTGRES_PASSWORD` | development-only | PostgreSQL password in Compose; replace outside local development |
+
+Apply schema migrations after starting PostgreSQL and before using preference endpoints:
+
+```bash
+alembic upgrade head
+```
+
+Run focused storage tests with `pytest tests/test_candidate_memory.py`. They use SQLite and fakeredis; no external services or LLM key are required.
 | `JOBMIND_CHUNK_SIZE` | `1000` | Characters per document chunk |
 | `JOBMIND_CHUNK_OVERLAP` | `200` | Character overlap between chunks |
 | `JOBMIND_ENVIRONMENT` | `development` | `development`, `test`, `production` |

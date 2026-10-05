@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Copy project metadata first for layer caching
 COPY pyproject.toml README.md ./
+COPY alembic.ini ./
 
 # Install all dependencies (no dev extras in production)
 RUN pip install --no-cache-dir .
@@ -16,6 +17,7 @@ RUN pip install --no-cache-dir .
 # Copy application code
 COPY app/ ./app/
 COPY evaluation/ ./evaluation/
+COPY migrations/ ./migrations/
 
 # Expose port
 EXPOSE 8000

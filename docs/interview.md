@@ -83,3 +83,20 @@ A: We run user input through `check_input()` before any LLM call. This uses rege
 
 **Q: Why not block PII instead of redacting it?**
 A: Blocking would break legitimate resume inputs that happen to contain a phone number. Redaction preserves the semantic content (the user is providing contact info) while preventing that data from being sent to a third-party LLM provider. This is a pragmatic privacy trade-off.
+
+## Storage foundation: PostgreSQL and Redis
+
+**Q: Why store candidate preferences in PostgreSQL and conversation context in Redis?**
+A: Preferences are durable user data and need to survive restarts. Conversation
+messages are bounded, temporary context with an expiry, so Redis list operations
+and TTL fit that lifecycle. Separating them prevents session cleanup from
+deleting durable preferences.
+
+**Q: Why use Alembic instead of creating tables when the app imports?**
+A: Explicit migrations make schema changes reviewable and deployable in order.
+Application imports should not mutate a production database as a side effect.
+
+**Q: Are these endpoints ready for multiple users?**
+A: Not yet. IDs are caller-supplied and there is no authentication or ownership
+authorization. The storage boundary is implemented, but exposing it safely
+requires an identity layer.

@@ -12,6 +12,10 @@ dependencies = [
     "pypdf>=4.0.0",
     "qdrant-client>=1.7.0",
     "langgraph>=0.0.26",
+    "SQLAlchemy>=2.0,<3.0",
+    "alembic>=1.14,<2.0",
+    "psycopg[binary]>=3.2,<4.0",
+    "redis>=5.0,<7.0",
 ]
 
 [project.optional-dependencies]
@@ -19,7 +23,12 @@ dev = [
     "pytest>=7.4.0",
     "httpx>=0.25.0",
     "pytest-cov>=4.1.0",
+    "fakeredis>=2.26,<3.0",
 ]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*", "evaluation*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

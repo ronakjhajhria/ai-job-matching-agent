@@ -147,3 +147,50 @@ Dockerfile (Python 3.11-slim), docker-compose (API + Qdrant with persistent volu
 ### Key Decisions
 - **Qdrant persistence**: docker-compose uses a named volume `qdrant_data` so vectors survive container restarts.
 - **Layer caching**: `pyproject.toml` is copied before app code so the `pip install` layer is cached unless dependencies change.
+
+## Storage foundation: PostgreSQL preferences and Redis sessions
+
+### What this component does
+Candidate search preferences are validated as a Pydantic model and upserted in
+PostgreSQL through a SQLAlchemy repository. Recent conversation messages are
+stored separately in Redis, trimmed to a configurable maximum, and assigned a
+TTL. Alembic owns the PostgreSQL schema lifecycle.
+
+### Why it exists
+Preferences must survive API restarts and be available across conversations.
+Conversation messages are short-lived context, so Redis is a better fit than
+mixing them into durable profile data. Keeping the stores separate makes their
+retention and failure behavior explicit.
+
+### Important design decisions
+- SQLAlchemy 2.x provides a typed repository boundary; Alembic applies explicit
+	migrations instead of creating production tables as an import/startup side
+	effect.
+- The PostgreSQL row stores the validated preference object as JSON so the
+	search profile can evolve without one migration for every optional filter.
+- Redis stores role/content messages in a list, trims old entries atomically,
+	and refreshes the configured expiration when a message is appended.
+- Store instances are injectable. Tests use SQLite for repository behavior and
+	fakeredis for the Redis command contract, so the unit suite needs no running
+	services.
+
+### Alternatives considered
+- SQLite is useful for local unit tests, but PostgreSQL is the configured
+	durable store because it is the requested production database and supports
+	the later pgvector search phase.
+- An in-process dictionary is simpler, but loses preferences on restart and
+	cannot share state across API workers.
+- PostgreSQL JSON is selected for the first preference schema. A later
+	relational job index can add typed columns for hard filters without forcing
+	the preference shape to be fully normalized.
+
+### Limitations
+- Candidate and session identifiers are caller-supplied. Authentication,
+	authorization, and ownership checks are not implemented; do not expose these
+	endpoints to untrusted users yet.
+- Conversation messages are stored as plain text. No transcript encryption,
+	PII redaction, or user deletion workflow is provided by this slice.
+- The pgvector-enabled PostgreSQL image is configured, but no vector columns or
+	hybrid retrieval are implemented yet.
+- PostgreSQL/Redis service health is not part of the API health endpoint; the
+	configured flags only indicate that clients/repositories were constructed.

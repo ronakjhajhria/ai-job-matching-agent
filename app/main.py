@@ -13,10 +13,13 @@ Builds every subsystem and wires them together:
   Phase 11 — Application tracker
 """
 
-from typing import Literal
+from contextlib import asynccontextmanager
+from typing import AsyncIterator, Literal
 
 from fastapi import FastAPI
 from pydantic import BaseModel
+from redis import Redis
+from sqlalchemy.engine import Engine
 
 from app.core.config import Settings
 from app.core.logging_config import configure_logging
@@ -28,6 +31,7 @@ from app.api.routes.intelligence import router as intelligence_router
 from app.api.routes.matching import router as matching_router
 from app.api.routes.tracker import router as tracker_router
 from app.api.routes.agent import router as agent_router
+from app.api.routes.memory import router as memory_router
 
 # LLM
 from app.llm.provider import LLMProvider
@@ -47,6 +51,9 @@ from app.agents.career_agent import build_agent_graph
 # Jobs & Memory
 from app.jobs.provider import MockJobProvider
 from app.memory.tracker import ApplicationTracker
+from app.db.session import create_database_engine, create_session_factory
+from app.memory.preferences import SqlCandidatePreferencesRepository
+from app.memory.session_store import RedisConversationStore
 
 
 class HealthResponse(BaseModel):
@@ -56,6 +63,8 @@ class HealthResponse(BaseModel):
     llm_configured: bool
     rag_configured: bool
     agent_configured: bool
+    postgres_configured: bool
+    redis_configured: bool
 
 
 def create_app(
@@ -63,6 +72,8 @@ def create_app(
     llm_provider: LLMProvider | None = None,
     rag_generator: RAGAnswerGenerator | None = None,
     agent_graph=None,
+    candidate_preferences=None,
+    conversation_store: RedisConversationStore | None = None,
 ) -> FastAPI:
     """
     Build the JobMind application.
@@ -71,12 +82,38 @@ def create_app(
     s = settings or Settings()
     configure_logging(s.log_level)
 
+    database_engine: Engine | None = None
+    redis_client: Redis | None = None
+    if candidate_preferences is None and s.database_url:
+        database_engine = create_database_engine(s.database_url)
+        candidate_preferences = SqlCandidatePreferencesRepository(
+            create_session_factory(database_engine)
+        )
+    if conversation_store is None and s.redis_url:
+        redis_client = Redis.from_url(s.redis_url, decode_responses=True)
+        conversation_store = RedisConversationStore(
+            redis_client,
+            ttl_seconds=s.session_ttl_seconds,
+            max_messages=s.session_max_messages,
+        )
+
+    @asynccontextmanager
+    async def lifespan(_application: FastAPI) -> AsyncIterator[None]:
+        try:
+            yield
+        finally:
+            if database_engine is not None:
+                database_engine.dispose()
+            if redis_client is not None:
+                redis_client.close()
+
     app = FastAPI(
         title=s.service_name,
         description="Agentic AI Career Intelligence Platform",
         version="1.0.0",
         docs_url="/docs",
         redoc_url="/redoc",
+        lifespan=lifespan,
     )
 
     # ------------------------------------------------------------------ #
@@ -133,6 +170,8 @@ def create_app(
     # Phase 11 — Application Tracker
     # ------------------------------------------------------------------ #
     app.state.tracker = ApplicationTracker()
+    app.state.candidate_preferences = candidate_preferences
+    app.state.conversation_store = conversation_store
 
     # ------------------------------------------------------------------ #
     # Routes
@@ -146,6 +185,8 @@ def create_app(
             llm_configured=app.state.llm_provider is not None,
             rag_configured=app.state.rag_generator is not None,
             agent_configured=app.state.agent_graph is not None,
+            postgres_configured=app.state.candidate_preferences is not None,
+            redis_configured=app.state.conversation_store is not None,
         )
 
     app.include_router(skills_router)
@@ -154,6 +195,7 @@ def create_app(
     app.include_router(matching_router)
     app.include_router(tracker_router)
     app.include_router(agent_router)
+    app.include_router(memory_router)
 
     return app
 
